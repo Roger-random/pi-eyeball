@@ -17,7 +17,7 @@ float *createMandelbrotImage(int width, int height, float xS, float yS, float ra
 
 // This takes the float value 'val', converts it to red, green & blue values, then 
 // sets those values into the image memory buffer location pointed to by 'ptr'
-inline void setRGB(png_byte *ptr, float val);
+void setRGB(png_byte *ptr, float val);
 
 // This function actually writes out the PNG image file. The string 'title' is
 // also written into the image file
@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
 	return result;
 }
 
-inline void setRGB(png_byte *ptr, float val)
+void setRGB(png_byte *ptr, float val)
 {
 	int v = (int)(val * 767);
 	if (v < 0) v = 0;
