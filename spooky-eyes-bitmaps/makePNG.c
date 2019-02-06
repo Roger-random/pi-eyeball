@@ -45,41 +45,33 @@ void freePNGBuffer(int height, png_bytep* buffer)
 	free(buffer);
 }
 
-int main(int argc, char *argv[])
+void writeSclera()
 {
-	// Make sure that the output filename argument has been provided
-	if (argc != 2) {
-		fprintf(stderr, "Please specify output file\n");
-		return 1;
-	}
+	png_bytep* row_pointers = allocPNGBuffer(SCLERA_WIDTH, SCLERA_HEIGHT);
 
-	// Specify an output image size
-	int width = 500;
-	int height = 300;
-
-	// Create a test image
-	png_bytep* row_pointers = allocPNGBuffer(width, height);
-
+	printf("Reading sclera array\n");
 	int row, column;
-	for (row=0; row < height; row++)
+	for (row=0; row<SCLERA_HEIGHT; row++)
 	{
-		for (column=0; column<width; column++)
+		for(column=0; column<SCLERA_WIDTH; column++)
 		{
-			row_pointers[row][column*3] = row % 0xFF;
-			row_pointers[row][column*3+1] = 0xCD;
-			row_pointers[row][column*3+2] = column % 0xFF;
+			uint16_t rgb565 = sclera[row][column];
+
+			row_pointers[row][column*3  ] = (rgb565 >> 8) & 0xF8;
+			row_pointers[row][column*3+1] = (rgb565 >> 3) & 0xFC;
+			row_pointers[row][column*3+2] = (rgb565 << 3) & 0xF8;
 		}
 	}
 
-	// Save the image to a PNG file
-	// The 'title' string is stored as part of the PNG file
-	printf("Saving PNG\n");
-	int result = writeImage(argv[1], width, height, row_pointers, "This is my test image");
+	printf("Writing sclera.png\n");
+	writeImage("sclera.png", SCLERA_WIDTH, SCLERA_HEIGHT, row_pointers, "Sclera");
 
-	// Free up the memorty used to store the image
-	freePNGBuffer(height, row_pointers);
+	freePNGBuffer(SCLERA_HEIGHT, row_pointers);
+}
 
-	return result;
+int main(int argc, char *argv[])
+{
+	writeSclera();
 }
 
 int writeImage(char* filename, int width, int height, png_bytep* buffer, char* title)
