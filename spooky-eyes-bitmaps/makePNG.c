@@ -1,28 +1,49 @@
-// LibPNG example
-// A.Greensted
-// http://www.labbookpages.co.uk
-
-// Version 2.0
-// With some minor corrections to Mandlebrot code (thanks to Jan-Oliver)
-
-// Version 1.0 - Initial release
+// Converter for spooky eye bitmaps
+//
+// Based on LibPNG example code by A.Greensted http://www.labbookpages.co.uk
+//
+// Because microcontrollers have limited ability to run modern image
+// decompression code, the Arduino spooky eye project
+//   https://learn.adafruit.com/animated-electronic-eyes-using-teensy-3-1
+// converted bitmap information into a raw uncompressed byte array for
+// consumption by a low power chip.
+//
+// For running similar code on a device with more powerful processor, say
+// a Raspberry Pi, we would prefer to work with bitmap. This code consumes
+// the header file from Arduino sketch and convert it into a PNG bitmap.
 
 #include <stdio.h>
 #include <math.h>
 #include <malloc.h>
 #include <png.h>
+#include <stdint.h>
 
-// Creates a test image for saving. Creates a Mandelbrot Set fractal of size width x height
-float *createMandelbrotImage(int width, int height, float xS, float yS, float rad, int maxIteration);
-
-// This takes the float value 'val', converts it to red, green & blue values, then 
-// sets those values into the image memory buffer location pointed to by 'ptr'
-void setRGB(png_byte *ptr, float val);
+#include "defaultEye.h"
 
 // This function actually writes out the PNG image file. The string 'title' is
 // also written into the image file
-int writeImage(char* filename, int width, int height, float *buffer, char* title);
+int writeImage(char* filename, int width, int height, png_bytep* buffer, char* title);
 
+png_bytep* allocPNGBuffer(int width, int height)
+{
+	png_bytep* row_pointers = (png_bytep*)malloc(height*sizeof(png_bytep));
+	int row, column;
+	for (row=0; row < height; row++)
+	{
+		row_pointers[row] = (png_bytep)malloc(3*width); // Each pixel has three bytes for RGB
+	}
+
+	return row_pointers;
+}
+
+void freePNGBuffer(int height, png_bytep* buffer)
+{
+	for (int row=0; row < height; row++)
+	{
+		free(buffer[row]);
+	}
+	free(buffer);
+}
 
 int main(int argc, char *argv[])
 {
@@ -36,50 +57,37 @@ int main(int argc, char *argv[])
 	int width = 500;
 	int height = 300;
 
-	// Create a test image - in this case a Mandelbrot Set fractal
-	// The output is a 1D array of floats, length: width * height
-	printf("Creating Image\n");
-	float *buffer = createMandelbrotImage(width, height, -0.802, -0.177, 0.011, 110);
-	if (buffer == NULL) {
-		return 1;
+	// Create a test image
+	png_bytep* row_pointers = allocPNGBuffer(width, height);
+
+	int row, column;
+	for (row=0; row < height; row++)
+	{
+		for (column=0; column<width; column++)
+		{
+			row_pointers[row][column*3] = row % 0xFF;
+			row_pointers[row][column*3+1] = 0xCD;
+			row_pointers[row][column*3+2] = column % 0xFF;
+		}
 	}
 
 	// Save the image to a PNG file
 	// The 'title' string is stored as part of the PNG file
 	printf("Saving PNG\n");
-	int result = writeImage(argv[1], width, height, buffer, "This is my test image");
+	int result = writeImage(argv[1], width, height, row_pointers, "This is my test image");
 
 	// Free up the memorty used to store the image
-	free(buffer);
+	freePNGBuffer(height, row_pointers);
 
 	return result;
 }
 
-void setRGB(png_byte *ptr, float val)
-{
-	int v = (int)(val * 767);
-	if (v < 0) v = 0;
-	if (v > 767) v = 767;
-	int offset = v % 256;
-
-	if (v<256) {
-		ptr[0] = 0; ptr[1] = 0; ptr[2] = offset;
-	}
-	else if (v<512) {
-		ptr[0] = 0; ptr[1] = offset; ptr[2] = 255-offset;
-	}
-	else {
-		ptr[0] = offset; ptr[1] = 255-offset; ptr[2] = 0;
-	}
-}
-
-int writeImage(char* filename, int width, int height, float *buffer, char* title)
+int writeImage(char* filename, int width, int height, png_bytep* buffer, char* title)
 {
 	int code = 0;
 	FILE *fp = NULL;
 	png_structp png_ptr = NULL;
 	png_infop info_ptr = NULL;
-	png_bytep row = NULL;
 	
 	// Open file for writing (binary mode)
 	fp = fopen(filename, "wb");
@@ -130,16 +138,10 @@ int writeImage(char* filename, int width, int height, float *buffer, char* title
 
 	png_write_info(png_ptr, info_ptr);
 
-	// Allocate memory for one row (3 bytes per pixel - RGB)
-	row = (png_bytep) malloc(3 * width * sizeof(png_byte));
-
 	// Write image data
-	int x, y;
+	int y;
 	for (y=0 ; y<height ; y++) {
-		for (x=0 ; x<width ; x++) {
-			setRGB(&(row[x*3]), buffer[y*width + x]);
-		}
-		png_write_row(png_ptr, row);
+		png_write_row(png_ptr, buffer[y]);
 	}
 
 	// End write
@@ -149,64 +151,6 @@ int writeImage(char* filename, int width, int height, float *buffer, char* title
 	if (fp != NULL) fclose(fp);
 	if (info_ptr != NULL) png_free_data(png_ptr, info_ptr, PNG_FREE_ALL, -1);
 	if (png_ptr != NULL) png_destroy_write_struct(&png_ptr, (png_infopp)NULL);
-	if (row != NULL) free(row);
 
 	return code;
-}
-
-float *createMandelbrotImage(int width, int height, float xS, float yS, float rad, int maxIteration)
-{
-	float *buffer = (float *) malloc(width * height * sizeof(float));
-	if (buffer == NULL) {
-		fprintf(stderr, "Could not create image buffer\n");
-		return NULL;
-	}
-
-	// Create Mandelbrot set image
-
-	int xPos, yPos;
-	float minMu = maxIteration;
-	float maxMu = 0;
-
-	for (yPos=0 ; yPos<height ; yPos++)
-	{
-		float yP = (yS-rad) + (2.0f*rad/height)*yPos;
-
-		for (xPos=0 ; xPos<width ; xPos++)
-		{
-			float xP = (xS-rad) + (2.0f*rad/width)*xPos;
-
-			int iteration = 0;
-			float x = 0;
-			float y = 0;
-
-			while (x*x + y*y <= 4 && iteration < maxIteration)
-			{
-				float tmp = x*x - y*y + xP;
-				y = 2*x*y + yP;
-				x = tmp;
-				iteration++;
-			}
-
-			if (iteration < maxIteration) {
-				float modZ = sqrt(x*x + y*y);
-				float mu = iteration - (log(log(modZ))) / log(2);
-				if (mu > maxMu) maxMu = mu;
-				if (mu < minMu) minMu = mu;
-				buffer[yPos * width + xPos] = mu;
-			}
-			else {
-				buffer[yPos * width + xPos] = 0;
-			}
-		}
-	}
-
-	// Scale buffer values between 0 and 1
-	int count = width * height;
-	while (count) {
-		count --;
-		buffer[count] = (buffer[count] - minMu) / (maxMu - minMu);
-	}
-
-	return buffer;
 }
